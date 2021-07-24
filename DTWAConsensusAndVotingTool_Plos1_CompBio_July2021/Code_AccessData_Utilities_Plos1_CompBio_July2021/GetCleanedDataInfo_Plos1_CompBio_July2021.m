@@ -50,7 +50,7 @@ function cleanedNoHeaderDataInfo = GetCleanedDataInfo_Plos1_CompBio_July2021(ens
 
 %%  Grab the original data set -- remove headers and clean it
     originalDataDirectory = ensembleInfo.originalDataDirectory; % 'GordonData_May2018';    % './GordonData_May2018';
-    originalDataFileName = sprintf('%s/%s/%s.txt', originalDataDirectory, cleanedNoHeaderDataInfo.ensembleName, cleanedNoHeaderDataInfo.ensembleName);
+    originalDataFileName = sprintf('../%s/%s/%s.txt', originalDataDirectory, cleanedNoHeaderDataInfo.ensembleName, cleanedNoHeaderDataInfo.ensembleName);
     
     noHeaderData = RemoveHeader_Plos1_CompBio_July2021(originalDataFileName, cleanedNoHeaderDataInfo.posnEnsembleStartStream, cleanedNoHeaderDataInfo.numStreams, ...
       cleanedNoHeaderDataInfo.headerStdDevRange, ensembleInfo, goldStandardInfo);
