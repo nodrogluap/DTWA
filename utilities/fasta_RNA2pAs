@@ -1,0 +1,150 @@
+#!/usr/bin/env perl 
+
+use strict;
+use warnings;
+
+@ARGV == 3 or die "Usage: $0 <ONT rna kmer model.tab> <reference.fasta> <output files prefix>\n",
+                          "Where the RNA kmer model is from or in the same format as ",
+                          "https://raw.githubusercontent.com/nanoporetech/kmer_models/master/r9.4_180mv_70bps_5mer_RNA/template_median69pA.model\n";
+
+my $model_file = shift @ARGV;
+my $fasta_file = shift @ARGV;
+my $out_file_prefix = shift @ARGV;
+
+$SIG{__WARN__} = sub {print STDERR "WARNING: ", @_, "\n"};
+$SIG{__DIE__} = sub {print STDERR "FATAL: ", @_, "\n"};
+
+my (%template_kmer_pAs, %ref_seqs, %ref_amperages);
+&load_model($model_file, \%template_kmer_pAs);
+my $ref_total_length = &load_reference($fasta_file, \%ref_seqs); # Return total length, to use in progress bars for further steps
+my $mean_amperage = &estimate_amperages(\%ref_seqs, $ref_total_length, \%template_kmer_pAs, \%ref_amperages);
+&output_TXTformat(\%ref_amperages, $ref_total_length, $out_file_prefix); # Used for finding start location of query in the reference 
+
+# Separate models for the forward and reverse strands
+# Note that depending on what version of metrichor was used we have a different pattern 
+sub load_model{
+  my ($in_file, $kmer_pA_ref) = @_;
+
+  open(MODEL, $in_file)
+    or die "Cannot open $in_file for reading: $!\n";
+  while(<MODEL>){
+      if(/([ACGT]{5})\s+(\d+\.\d+)/s){
+        $kmer_pA_ref->{$1} = $2;
+      }
+  }
+  close(MODEL);
+
+  if(scalar(keys %$kmer_pA_ref) != 1024){
+    die "Could not parse 1024 template kmer models (all 5mers) from $model_file (found ", scalar(keys %$kmer_pA_ref), "), aborting\n";
+  }
+}
+
+sub load_reference{
+  my ($infile, $seqs_ref) = @_;
+  my $old_rec_sep = $/;
+  my $total_bases = 0;
+  # Fasta to raw DNA strings in hash keyed by header line id
+  $/ = "\n>"; # ~ FastA record separator
+  open(FASTA, $infile)
+    or die "Cannot open $infile for reading: $!\n";
+  while(<FASTA>){
+    chomp;
+    s/^>//; # will happen to first record only
+    my ($id) = $_ =~ /^\s*(\S+)/; # ID is first non-whitespace on header line
+    $_ =~ s/^(.*?)\n//; # remove first (header) line
+    $_ = uc($_); # turn to upper case
+    $_ =~ tr/\r\n \t//d; # remove whitespace
+    $_ =~ tr/ACGT/N/c; # turn any ambiguous letters into N's
+    $seqs_ref->{$id} = $_;
+    my $l = length($_);
+    print STDERR "$id ($l letters)\n";
+    $total_bases += $l;
+  }
+  close(FASTA);
+  $/ = $old_rec_sep;
+  print STDERR "Loaded ", scalar(keys %$seqs_ref), " reference sequences.\n";
+
+  return $total_bases;
+}
+
+# Generate estimates according to the NN thermodynamics vs. amperage regression model loaded earlier
+# Also returns the mean picoamperage for the reference genome
+sub estimate_amperages{
+  my ($seq_refs, $bases_total, $nmer2amperage, $amperages_ref) = @_;
+
+  my $mean_pA = 0;
+  my $num_ambig = 0;
+
+  # Set up progress meter
+  my $output_chunk_size = int($bases_total/100);
+  my $num_bases_processed = 0;
+  print STDERR "Generating reference sequence amperage estimates:\n",
+               "         10%       20%       30%       40%       50%       60%       70%       80%       90%       100%\n",
+               "    :    |    :    |    :    |    :    |    :    |    :    |    :    |    :    |    :    |    :    |\n";
+
+  my $nmer_window_size = 5;
+  # Scan the whole reference dataset
+  for my $cursor_seqname (keys %$seq_refs){
+    my $seq = reverse($seq_refs->{$cursor_seqname}); # reverse because ONT RNA is read 3' to 5'
+    # For memory allocation efficiency, pre-assign an amperage estimates array of the same size as the sequence it represents
+    my $ref_max_index = length($seq_refs->{$cursor_seqname})-1; 
+    $amperages_ref->{$cursor_seqname} = [];
+    $#{$amperages_ref->{$cursor_seqname}} = $ref_max_index;
+    for(my $cursor_offset = 0; $cursor_offset <= $ref_max_index; $cursor_offset++){
+      if($cursor_offset+$nmer_window_size > $ref_max_index){
+        next; # no good way to estimate outside the model
+      }
+      my $nmer = substr($seq, $cursor_offset, $nmer_window_size);
+      if(exists $nmer2amperage->{$nmer}){
+        $amperages_ref->{$cursor_seqname}->[$cursor_offset] = $nmer2amperage->{$nmer}; 
+        $mean_pA += $nmer2amperage->{$nmer};
+      }
+      else{
+        $amperages_ref->{$cursor_seqname}->[$cursor_offset] = 0; 
+        $num_ambig++;
+      }
+
+      # Update progress bar if necessary
+      print STDERR "." if ++$num_bases_processed%$output_chunk_size == 0;
+    }
+  }
+  print STDERR "\n";
+  $mean_pA /= $num_bases_processed-$num_ambig;
+  return $mean_pA;
+}
+
+sub output_TXTformat{
+  my($amperages_ref, $bases_total, $out_file_prefix) = @_;
+
+  # Set up progress meter
+  my $output_chunk_size = int($bases_total/100);
+  my $num_bases_processed = 0;
+  my $last_dot = 0;
+  print STDERR "Outputting picoamperage estimates in text format:\n",
+               "         10%       20%       30%       40%       50%       60%       70%       80%       90%       100%\n",
+               "    :    |    :    |    :    |    :    |    :    |    :    |    :    |    :    |    :    |    :    |\n";
+  
+  # Scan the whole reference dataset
+  for my $seqname (keys %$amperages_ref){
+    my $ref_max_index = $#{$amperages_ref->{$seqname}}-5; # since we didn't make estimates for incomplete 5' kmers
+
+    # Format is a single line with "<space>#" for each value
+    open(TXT, ">$out_file_prefix$seqname.txt")
+      or die "Cannot open $out_file_prefix$seqname.txt for writing: $!\n";
+    print STDERR "writing file $out_file_prefix$seqname.txt\n";
+    for(my $cursor_offset = 0; $cursor_offset <= $ref_max_index; $cursor_offset+=$output_chunk_size){
+      my $max_index = $cursor_offset+$output_chunk_size-1;
+      $max_index = $ref_max_index if $ref_max_index < $max_index;
+      print TXT join(" ", map {sprintf "%.2f", $_} @{$amperages_ref->{$seqname}}[$cursor_offset..$max_index]);
+  
+      # Update the progress meter if required. Because of how we chose the chunk size, it should never be more than one dot per loop.
+      $num_bases_processed += $max_index - $cursor_offset + 1;
+      if(int($num_bases_processed/$output_chunk_size) > $last_dot){
+        print STDERR ".";
+        $last_dot++;
+      }
+    }
+    close(TXT);
+  }
+  print STDERR "\n";
+}
