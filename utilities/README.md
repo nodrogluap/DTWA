@@ -12,6 +12,7 @@ for f in ../SquiggleStreamSource_FAST5_Files/R1_71_1/*.fast5; do fast5_RNA2pAs $
 # fasta_RNA2pAs
 Translates a nucleotide sequence in FastA format into a sequence of expected mean picoamperage (pA) levels, using a k-mer model such as the one 
 for RNA provided by ONT at https://raw.githubusercontent.com/nanoporetech/kmer_models/master/r9.4_180mv_70bps_5mer_RNA/template_median69pA.model
+
 If multiple sequences are contained in the FastA file, each will be output to its own file with the prefix given as the third argument, and the 
 name from the FastA description line (all characters up to the first space in the description line). An empty file output prefix can be used like so:
 
