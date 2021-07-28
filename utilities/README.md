@@ -6,7 +6,7 @@ If you have a directory of *individual* FAST5 files (such as provided in this re
 text files of mean event level sequences:
 
 ```bash
-for f in ../SquiggleStreamSource_FAST5_Files/R1_71_1/*.fast5; do fast5_RNA2pAs $f > ${f/fast5/means.txt}; done
+for f in ../SquiggleStreamSource_FAST5_Files/R1_71_1/*.fast5; do fast5_RNA2pAs $f > ${f/fast5/event_means.txt}; done
 ```
 
 # fasta_RNA2pAs
