@@ -1,0 +1,2 @@
+#!/bin/sh
+/usr/bin/env perl -e '($D) = `h5dump -n '$1'` =~ /(\S+\/Events)/s; $_ = `h5dump -d $D '$1'`; print "$1 " while /([0-9.]+)\,\s+[0-9.]+\s*\},/sg; print "\n"' $1
