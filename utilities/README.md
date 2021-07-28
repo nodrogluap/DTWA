@@ -2,7 +2,7 @@
 
 ## fast5_RNA2pAs
 Extracts the mean picoamperage (pA) levels after event detection from a binary ONT FAST5 (HDF5) file and prints them to standard output.  
-If you have a directory of *individual* FAST5 files (such as provided in this repo), you might do the following to generate individual 
+If you have a directory of *individual* FAST5 files (such as provided in this repository), you might do the following to generate individual 
 text files of mean event level sequences:
 
 ```bash
